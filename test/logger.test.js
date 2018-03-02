@@ -31,7 +31,7 @@ test("custom log function", done =>
   logger({
     log(state, action, nextState) {
       expect(state).toEqual({ value: 0 })
-      expect(action).toEqual({ name: "inc", data: 2 })
+      expect(action).toEqual({ name: "inc", data: 2, result: { value: 2 } })
       expect(nextState).toEqual({ value: 2 })
       done()
     }
@@ -50,7 +50,7 @@ test("state slices", done => {
       switch (action.name) {
         case "hello":
           expect(state).toEqual({ slice: { value: 0 } })
-          expect(nextState).toEqual({ message: "hello" })
+          expect(nextState).toEqual({ message: "hello", slice: { value: 1 } })
           break
         case "slice.up":
           expect(state).toEqual({ value: 0 })
@@ -135,4 +135,64 @@ test("doesn't interfere with custom container", done => {
       ),
     document.body.firstChild
   )
+})
+
+test("next state of a slice", done => {
+  const state = {
+    counters: {
+      count1: 1,
+      count2: 2
+    }
+  }
+
+  const actions = {
+    counters: {
+      inc1: () => ({ count1 }) => ({ count1: count1 + 1 })
+    }
+  }
+
+  logger({
+    log(prevState, action, nextState) {
+      expect(prevState).toEqual({
+        count1: 1,
+        count2: 2
+      })
+      expect(nextState).toEqual({
+        count1: 2,
+        count2: 2
+      })
+    }
+  })(app)(state, actions, () => done()).counters.inc1()
+})
+
+test("handle immediate sequence of actions resulting in batched state on view", done => {
+  let isLastActionTriggered = false
+  let stateChangesCounter = 0
+  let logTriggerCounter = 0
+
+  const state = { value: 0 }
+  const actions = {
+    firstAction: () => ({ value }) => ({ value: value + 1 }),
+    lastAction: () => ({ value }) => {
+      isLastActionTriggered = true
+      return { value: value + 2 }
+    },
+    getPromise: () => () => Promise.resolve("hello")
+  }
+
+  const wiredActions = logger({
+    log: () => logTriggerCounter++
+  })(app)(state, actions, state => {
+    stateChangesCounter++
+    if (isLastActionTriggered) {
+      expect(stateChangesCounter).toEqual(1)
+      expect(state).toEqual({ value: 3 })
+      expect(logTriggerCounter).toEqual(3)
+      done()
+    }
+  })
+
+  wiredActions.firstAction()
+  wiredActions.getPromise()
+  wiredActions.lastAction()
 })
